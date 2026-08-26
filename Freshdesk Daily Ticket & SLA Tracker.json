@@ -1,0 +1,467 @@
+{
+  "name": "Freshdesk Daily Ticket & SLA Tracker",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -512,
+        -64
+      ],
+      "id": "38a74d25-2fe9-4238-9250-ed8f9f71e2c5",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {
+          "include": [
+            "company",
+            "description",
+            "requester",
+            "stats"
+          ],
+          "updatedSince": "2026-08-26T00:00:00"
+        }
+      },
+      "type": "n8n-nodes-base.freshdesk",
+      "typeVersion": 1,
+      "position": [
+        -304,
+        -64
+      ],
+      "id": "d4e03425-3daf-47e8-b459-4574572caaa4",
+      "name": "Get many tickets",
+      "credentials": {
+        "freshdeskApi": {
+          "id": "1POFLrhcFGWGTcC6",
+          "name": "Freshdesk account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const timeZone = \"Africa/Johannesburg\";\n\n// Today's date in South African time\nconst today = new Intl.DateTimeFormat(\"en-CA\", {\n  timeZone,\n  year: \"numeric\",\n  month: \"2-digit\",\n  day: \"2-digit\"\n}).format(new Date());\n\nconst tickets = $input.all()\n  .filter(item => {\n    if (!item.json.created_at) return false;\n\n    const createdDate = new Intl.DateTimeFormat(\"en-CA\", {\n      timeZone,\n      year: \"numeric\",\n      month: \"2-digit\",\n      day: \"2-digit\"\n    }).format(new Date(item.json.created_at));\n\n    return createdDate === today;\n  })\n  .map(item => {\n\n    // --------------------------------\n    // STATUS\n    // --------------------------------\n\n    const statusNames = {\n      2: \"Open\",\n      3: \"Pending\",\n      4: \"Resolved\",\n      5: \"Closed\"\n    };\n\n    if (statusNames[item.json.status]) {\n      item.json.status = statusNames[item.json.status];\n    }\n\n\n    // --------------------------------\n    // PRIORITY\n    // --------------------------------\n\n    const priorityNames = {\n      1: \"Low\",\n      2: \"Medium\",\n      3: \"High\",\n      4: \"Urgent\"\n    };\n\n    if (priorityNames[item.json.priority]) {\n      item.json.priority = priorityNames[item.json.priority];\n    }\n\n\n    // --------------------------------\n    // GROUP NAME\n    // --------------------------------\n\n    const groupNames = {\n      \"9000177886\": \"Matateni\",\n      \"9000177884\": \"Centurion\"\n    };\n\n    item.json.group =\n      groupNames[item.json.group_id] || \"\";\n\n\n    // --------------------------------\n    // IS ESCALATED\n    // --------------------------------\n\n    item.json.is_escalated =\n      item.json.nr_escalated === true ? \"YES\" : \"NO\";\n\n\n    // --------------------------------\n    // TIME TRACKED\n    // Resolved time - Created time\n    // --------------------------------\n\n    const created = item.json.created_at;\n    const resolved = item.json.stats?.resolved_at;\n\n    if (created && resolved) {\n\n      const difference =\n        new Date(resolved).getTime() -\n        new Date(created).getTime();\n\n      if (difference >= 0) {\n\n        const totalMinutes =\n          Math.floor(difference / 60000);\n\n        const hours =\n          Math.floor(totalMinutes / 60);\n\n        const minutes =\n          totalMinutes % 60;\n\n        item.json.time_tracked =\n          String(hours).padStart(2, \"0\") +\n          \":\" +\n          String(minutes).padStart(2, \"0\");\n\n      } else {\n\n        item.json.time_tracked = \"\";\n\n      }\n\n    } else {\n\n      item.json.time_tracked = \"\";\n\n    }\n\n\n    // --------------------------------\n    // FIRST RESPONSE SLA STATUS\n    // --------------------------------\n\n    const firstResponse =\n      item.json.stats?.first_responded_at;\n\n    const firstResponseDue =\n      item.json.fr_due_by;\n\n    if (firstResponse && firstResponseDue) {\n\n      item.json.first_response_status =\n        new Date(firstResponse) <= new Date(firstResponseDue)\n          ? \"WITHIN SLA\"\n          : \"SLA VIOLATED\";\n\n    } else {\n\n      item.json.first_response_status = \"\";\n\n    }\n\n\n    // --------------------------------\n    // RESOLUTION SLA STATUS\n    // --------------------------------\n\n    const resolutionDue =\n      item.json.due_by;\n\n    if (resolved && resolutionDue) {\n\n      item.json.resolution_status =\n        new Date(resolved) <= new Date(resolutionDue)\n          ? \"WITHIN SLA\"\n          : \"SLA VIOLATED\";\n\n    } else {\n\n      item.json.resolution_status = \"\";\n\n    }\n\n\n    return item;\n\n  })\n  .sort((a, b) =>\n    new Date(a.json.created_at) -\n    new Date(b.json.created_at)\n  );\n\n\n// --------------------------------\n// TOTAL NUMBER OF TICKETS\n// --------------------------------\n\nconst totalTickets = tickets.length;\n\n\n// --------------------------------\n// RESPONSIBLE TEAM\n// --------------------------------\n\nconst dayOfWeek = new Date(\n  today + \"T12:00:00+02:00\"\n).getDay();\n\nconst teams = {\n  1: \"TEAM 1 – Pearl Mhlongo, Sandile Tshabalala\",\n  2: \"TEAM 2 – Glen Mogane, Nontokozo Simelane, Khanyisa Mathebula\",\n  3: \"TEAM 3 – Wendy Gama, Sinead Swele\",\n  4: \"TEAM 4 – Henny Mkhonto, Ncedile Bhila, Mbalenhle Zungu\",\n  5: \"TEAM 5 – Norah Moseteka, Sibusiso Peterson\"\n};\n\nconst responsibleTeam =\n  teams[dayOfWeek] || \"\";\n\n\n// --------------------------------\n// FINAL OUTPUT\n// --------------------------------\n\nreturn tickets.map((item, index) => ({\n  ...item,\n\n  json: {\n    ...item.json,\n\n    // Only first row\n    total_no_of_tickets:\n      index === 0 ? totalTickets : \"\",\n\n    // Only first row\n    responsible_team:\n      index === 0 ? responsibleTeam : \"\"\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -96,
+        -64
+      ],
+      "id": "5228fb44-f1ca-493d-bc1b-b69d8a9a3f37",
+      "name": "Code in JavaScript",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1NRtuzRU2p0Me0dOvMH0ybLn-FJFmS-xTjHohh2JkhqA",
+          "mode": "list",
+          "cachedResultName": "Freshdesk Ticket Tracker",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1NRtuzRU2p0Me0dOvMH0ybLn-FJFmS-xTjHohh2JkhqA/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "AUGUST 2026",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1NRtuzRU2p0Me0dOvMH0ybLn-FJFmS-xTjHohh2JkhqA/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Ticket ID": "={{ $json.id }}",
+            "Subject": "={{ $json.subject }}",
+            "Status": "={{ $json.status }}",
+            "Type": "={{ $json.type }}",
+            "Priority": "={{ $json.priority }}",
+            "Responsible Team": "={{ $json.responsible_team }}",
+            "Total No. of Tickets": "={{ $json.total_no_of_tickets }}",
+            "Group": "={{$json.group}}",
+            "Owner": "={{ $json.custom_fields.cf_owner }}",
+            "Created time": "={{ $json.created_at }}",
+            "Due by Time": "={{ $('Get many tickets').item.json.due_by }}",
+            "Time tracked": "={{ $json.time_tracked }}",
+            "Job Card Url": "={{ $json.custom_fields.cf_job_card_url }}",
+            "Module": "={{ $json.custom_fields.cf_module }}",
+            "Full name": "={{ $json.requester.name }}",
+            "Contact ID": "={{ $json.requester.email }}",
+            "Resolved time": "={{ $json.stats.resolved_at }}",
+            "Initial response time": "={{ $json.stats.first_responded_at }}",
+            "First response time (in hrs)": "={{ $json.stats.first_responded_at }}",
+            "Resolution time (in hrs)": "={{ $json.stats.resolved_at }}",
+            "Closed time": "={{ $('Get many tickets').item.json.stats.closed_at }}",
+            "Escalation Level": "={{ $('Get many tickets').item.json.custom_fields.cf_escalation_level }}",
+            "Agent": "={{ $json.custom_fields.cf_owner }}",
+            "Is Escalated (YES/ NO)": "={{ $json.is_escalated }}",
+            "Resolution status": "={{$json.resolution_status}}",
+            "First response status": "={{$json.first_response_status}}"
+          },
+          "matchingColumns": [
+            "Ticket ID"
+          ],
+          "schema": [
+            {
+              "id": "Ticket ID",
+              "displayName": "Ticket ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Subject",
+              "displayName": "Subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Priority",
+              "displayName": "Priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Type",
+              "displayName": "Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Agent",
+              "displayName": "Agent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Group",
+              "displayName": "Group",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Created time",
+              "displayName": "Created time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Due by Time",
+              "displayName": "Due by Time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Resolved time",
+              "displayName": "Resolved time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Closed time",
+              "displayName": "Closed time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Initial response time",
+              "displayName": "Initial response time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Time tracked",
+              "displayName": "Time tracked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "First response time (in hrs)",
+              "displayName": "First response time (in hrs)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Resolution time (in hrs)",
+              "displayName": "Resolution time (in hrs)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Resolution status",
+              "displayName": "Resolution status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "First response status",
+              "displayName": "First response status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Module",
+              "displayName": "Module",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Summary",
+              "displayName": "Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Escalation Level",
+              "displayName": "Escalation Level",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Is Escalated (YES/ NO)",
+              "displayName": "Is Escalated (YES/ NO)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Owner",
+              "displayName": "Owner",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Card Url",
+              "displayName": "Job Card Url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Full name",
+              "displayName": "Full name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Contact ID",
+              "displayName": "Contact ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Total No. of Tickets",
+              "displayName": "Total No. of Tickets",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Comments",
+              "displayName": "Comments",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Responsible Team",
+              "displayName": "Responsible Team",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        112,
+        -64
+      ],
+      "id": "24fb96e0-c453-4658-880f-aaff69b82afa",
+      "name": "Append or update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ZA7bg0scO52k1Ej2",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get many tickets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many tickets": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "8116e277-f297-428b-8bf8-bcbeb8ea5a48",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b2562647513dcc82becd2e81ea7b8054a2a0a336d2d7ed01d11d3e8e57df9f28"
+  },
+  "nodeGroups": [],
+  "id": "A6BdYfjnzAcMxE6h",
+  "tags": []
+}
