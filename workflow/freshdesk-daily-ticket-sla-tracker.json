@@ -3,23 +3,6 @@
   "nodes": [
     {
       "parameters": {
-        "rule": {
-          "interval": [
-            {}
-          ]
-        }
-      },
-      "type": "n8n-nodes-base.scheduleTrigger",
-      "typeVersion": 1.3,
-      "position": [
-        -512,
-        -64
-      ],
-      "id": "38a74d25-2fe9-4238-9250-ed8f9f71e2c5",
-      "name": "Schedule Trigger"
-    },
-    {
-      "parameters": {
         "operation": "getAll",
         "returnAll": true,
         "options": {
@@ -29,14 +12,14 @@
             "requester",
             "stats"
           ],
-          "updatedSince": "2026-08-26T00:00:00"
+          "updatedSince": "2026-08-28T00:00:00"
         }
       },
       "type": "n8n-nodes-base.freshdesk",
       "typeVersion": 1,
       "position": [
-        -304,
-        -64
+        -688,
+        -352
       ],
       "id": "d4e03425-3daf-47e8-b459-4574572caaa4",
       "name": "Get many tickets",
@@ -49,17 +32,133 @@
     },
     {
       "parameters": {
-        "jsCode": "const timeZone = \"Africa/Johannesburg\";\n\n// Today's date in South African time\nconst today = new Intl.DateTimeFormat(\"en-CA\", {\n  timeZone,\n  year: \"numeric\",\n  month: \"2-digit\",\n  day: \"2-digit\"\n}).format(new Date());\n\nconst tickets = $input.all()\n  .filter(item => {\n    if (!item.json.created_at) return false;\n\n    const createdDate = new Intl.DateTimeFormat(\"en-CA\", {\n      timeZone,\n      year: \"numeric\",\n      month: \"2-digit\",\n      day: \"2-digit\"\n    }).format(new Date(item.json.created_at));\n\n    return createdDate === today;\n  })\n  .map(item => {\n\n    // --------------------------------\n    // STATUS\n    // --------------------------------\n\n    const statusNames = {\n      2: \"Open\",\n      3: \"Pending\",\n      4: \"Resolved\",\n      5: \"Closed\"\n    };\n\n    if (statusNames[item.json.status]) {\n      item.json.status = statusNames[item.json.status];\n    }\n\n\n    // --------------------------------\n    // PRIORITY\n    // --------------------------------\n\n    const priorityNames = {\n      1: \"Low\",\n      2: \"Medium\",\n      3: \"High\",\n      4: \"Urgent\"\n    };\n\n    if (priorityNames[item.json.priority]) {\n      item.json.priority = priorityNames[item.json.priority];\n    }\n\n\n    // --------------------------------\n    // GROUP NAME\n    // --------------------------------\n\n    const groupNames = {\n      \"9000177886\": \"Matateni\",\n      \"9000177884\": \"Centurion\"\n    };\n\n    item.json.group =\n      groupNames[item.json.group_id] || \"\";\n\n\n    // --------------------------------\n    // IS ESCALATED\n    // --------------------------------\n\n    item.json.is_escalated =\n      item.json.nr_escalated === true ? \"YES\" : \"NO\";\n\n\n    // --------------------------------\n    // TIME TRACKED\n    // Resolved time - Created time\n    // --------------------------------\n\n    const created = item.json.created_at;\n    const resolved = item.json.stats?.resolved_at;\n\n    if (created && resolved) {\n\n      const difference =\n        new Date(resolved).getTime() -\n        new Date(created).getTime();\n\n      if (difference >= 0) {\n\n        const totalMinutes =\n          Math.floor(difference / 60000);\n\n        const hours =\n          Math.floor(totalMinutes / 60);\n\n        const minutes =\n          totalMinutes % 60;\n\n        item.json.time_tracked =\n          String(hours).padStart(2, \"0\") +\n          \":\" +\n          String(minutes).padStart(2, \"0\");\n\n      } else {\n\n        item.json.time_tracked = \"\";\n\n      }\n\n    } else {\n\n      item.json.time_tracked = \"\";\n\n    }\n\n\n    // --------------------------------\n    // FIRST RESPONSE SLA STATUS\n    // --------------------------------\n\n    const firstResponse =\n      item.json.stats?.first_responded_at;\n\n    const firstResponseDue =\n      item.json.fr_due_by;\n\n    if (firstResponse && firstResponseDue) {\n\n      item.json.first_response_status =\n        new Date(firstResponse) <= new Date(firstResponseDue)\n          ? \"WITHIN SLA\"\n          : \"SLA VIOLATED\";\n\n    } else {\n\n      item.json.first_response_status = \"\";\n\n    }\n\n\n    // --------------------------------\n    // RESOLUTION SLA STATUS\n    // --------------------------------\n\n    const resolutionDue =\n      item.json.due_by;\n\n    if (resolved && resolutionDue) {\n\n      item.json.resolution_status =\n        new Date(resolved) <= new Date(resolutionDue)\n          ? \"WITHIN SLA\"\n          : \"SLA VIOLATED\";\n\n    } else {\n\n      item.json.resolution_status = \"\";\n\n    }\n\n\n    return item;\n\n  })\n  .sort((a, b) =>\n    new Date(a.json.created_at) -\n    new Date(b.json.created_at)\n  );\n\n\n// --------------------------------\n// TOTAL NUMBER OF TICKETS\n// --------------------------------\n\nconst totalTickets = tickets.length;\n\n\n// --------------------------------\n// RESPONSIBLE TEAM\n// --------------------------------\n\nconst dayOfWeek = new Date(\n  today + \"T12:00:00+02:00\"\n).getDay();\n\nconst teams = {\n  1: \"TEAM 1 – Pearl Mhlongo, Sandile Tshabalala\",\n  2: \"TEAM 2 – Glen Mogane, Nontokozo Simelane, Khanyisa Mathebula\",\n  3: \"TEAM 3 – Wendy Gama, Sinead Swele\",\n  4: \"TEAM 4 – Henny Mkhonto, Ncedile Bhila, Mbalenhle Zungu\",\n  5: \"TEAM 5 – Norah Moseteka, Sibusiso Peterson\"\n};\n\nconst responsibleTeam =\n  teams[dayOfWeek] || \"\";\n\n\n// --------------------------------\n// FINAL OUTPUT\n// --------------------------------\n\nreturn tickets.map((item, index) => ({\n  ...item,\n\n  json: {\n    ...item.json,\n\n    // Only first row\n    total_no_of_tickets:\n      index === 0 ? totalTickets : \"\",\n\n    // Only first row\n    responsible_team:\n      index === 0 ? responsibleTeam : \"\"\n  }\n}));"
+        "documentId": {
+          "__rl": true,
+          "value": "1NRtuzRU2p0Me0dOvMH0ybLn-FJFmS-xTjHohh2JkhqA",
+          "mode": "list",
+          "cachedResultName": "Freshdesk Ticket Tracker",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1NRtuzRU2p0Me0dOvMH0ybLn-FJFmS-xTjHohh2JkhqA/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 526363314,
+          "mode": "list",
+          "cachedResultName": "September 2026",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1NRtuzRU2p0Me0dOvMH0ybLn-FJFmS-xTjHohh2JkhqA/edit#gid=526363314"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -688,
+        48
+      ],
+      "id": "dd974efd-5d27-4aa1-9400-c25d363941b6",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ZA7bg0scO52k1Ej2",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://boxfusion.freshdesk.com/api/v2/tickets/{{$json[\"Ticket ID\"]}}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "freshdeskApi",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -464,
+        -32
+      ],
+      "id": "3212d7ba-22ec-488a-a8fb-bb9416e4edc6",
+      "name": "HTTP Request",
+      "credentials": {
+        "freshdeskApi": {
+          "id": "1POFLrhcFGWGTcC6",
+          "name": "Freshdesk account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "advanced": true,
+        "mergeByFields": {
+          "values": [
+            {
+              "field1": "id",
+              "field2": "Ticket ID"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -240,
+        48
+      ],
+      "id": "7931fb60-d432-4068-8b97-7734615d4e4e",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 15
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -912,
+        48
+      ],
+      "id": "6f58bb2d-ba05-40c4-88fc-216a67390b94",
+      "name": "Change log trigger"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 16
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -912,
+        -352
+      ],
+      "id": "38a74d25-2fe9-4238-9250-ed8f9f71e2c5",
+      "name": "Ticket & Daily summary trigger"
+    },
+    {
+      "parameters": {
+        "jsCode": "const timeZone = \"Africa/Johannesburg\";\n\n// Today's date in South African time\nconst today = new Intl.DateTimeFormat(\"en-CA\", {\n  timeZone,\n  year: \"numeric\",\n  month: \"2-digit\",\n  day: \"2-digit\"\n}).format(new Date());\n\nconst tickets = $input.all()\n  .filter(item => {\n    if (!item.json.created_at) return false;\n\n    const createdDate = new Intl.DateTimeFormat(\"en-CA\", {\n      timeZone,\n      year: \"numeric\",\n      month: \"2-digit\",\n      day: \"2-digit\"\n    }).format(new Date(item.json.created_at));\n\n    return createdDate === today;\n  })\n  .map(item => {\n\n    // --------------------------------\n    // STATUS\n    // --------------------------------\n\n    const statusNames = {\n      2: \"Open\",\n      3: \"Pending\",\n      4: \"Resolved\",\n      5: \"Closed\"\n    };\n\n    if (statusNames[item.json.status]) {\n      item.json.status = statusNames[item.json.status];\n    }\n\n\n    // --------------------------------\n    // PRIORITY\n    // --------------------------------\n\n    const priorityNames = {\n      1: \"Low\",\n      2: \"Medium\",\n      3: \"High\",\n      4: \"Urgent\"\n    };\n\n    if (priorityNames[item.json.priority]) {\n      item.json.priority = priorityNames[item.json.priority];\n    }\n\n\n    // --------------------------------\n    // GROUP NAME\n    // --------------------------------\n\n    const groupNames = {\n      \"9000177886\": \"Matateni\",\n      \"9000177884\": \"Centurion\"\n    };\n\n    item.json.group =\n      groupNames[item.json.group_id] || \"\";\n\n\n    // --------------------------------\n    // IS ESCALATED\n    // --------------------------------\n\n    item.json.is_escalated =\n      item.json.nr_escalated === true ? \"YES\" : \"NO\";\n\n\n    // --------------------------------\n    // TIME TRACKED\n    // Resolved time - Created time\n    // --------------------------------\n\n    const created = item.json.created_at;\n    const resolved = item.json.stats?.resolved_at;\n\n    if (created && resolved) {\n\n      const difference =\n        new Date(resolved).getTime() -\n        new Date(created).getTime();\n\n      if (difference >= 0) {\n\n        const totalMinutes =\n          Math.floor(difference / 60000);\n\n        const hours =\n          Math.floor(totalMinutes / 60);\n\n        const minutes =\n          totalMinutes % 60;\n\n        item.json.time_tracked =\n          String(hours).padStart(2, \"0\") +\n          \":\" +\n          String(minutes).padStart(2, \"0\");\n\n      } else {\n\n        item.json.time_tracked = \"\";\n\n      }\n\n    } else {\n\n      item.json.time_tracked = \"\";\n\n    }\n\n\n    // --------------------------------\n    // FIRST RESPONSE SLA STATUS\n    // --------------------------------\n\n    const firstResponse =\n      item.json.stats?.first_responded_at;\n\n    const firstResponseDue =\n      item.json.fr_due_by;\n\n    if (firstResponse && firstResponseDue) {\n\n      item.json.first_response_status =\n        new Date(firstResponse) <= new Date(firstResponseDue)\n            ? \"Within SLA\"\n          : \"SLA Violated\";\n\n    } else {\n\n      item.json.first_response_status = \"\";\n\n    }\n\n\n    // --------------------------------\n    // RESOLUTION SLA STATUS\n    // --------------------------------\n\n    const resolutionDue =\n      item.json.due_by;\n\n    if (resolved && resolutionDue) {\n\n      item.json.resolution_status =\n        new Date(resolved) <= new Date(resolutionDue)\n          ? \"Within SLA\"\n          : \"SLA Violated\";\n\n    } else {\n\n      item.json.resolution_status = \"\";\n\n    }\n\n\n    return item;\n\n  })\n  .sort((a, b) =>\n    new Date(a.json.created_at) -\n    new Date(b.json.created_at)\n  );\n\n\n// --------------------------------\n// TOTAL NUMBER OF TICKETS\n// --------------------------------\n\nconst totalTickets = tickets.length;\n\n\n// --------------------------------\n// RESPONSIBLE TEAM\n// --------------------------------\n\nconst dayOfWeek = new Date(\n  today + \"T12:00:00+02:00\"\n).getDay();\n\nconst teams = {\n  1: \"TEAM 1 – Pearl Mhlongo, Sandile Tshabalala\",\n  2: \"TEAM 2 – Glen Mogane, Nontokozo Simelane, Khanyisa Mathebula\",\n  3: \"TEAM 3 – Wendy Gama, Sinead Swele\",\n  4: \"TEAM 4 – Henny Mkhonto, Ncedile Bhila, Mbalenhle Zungu\",\n  5: \"TEAM 5 – Norah Moseteka, Sibusiso Peterson\"\n};\n\nconst responsibleTeam =\n  teams[dayOfWeek] || \"\";\n\n\n// --------------------------------\n// FINAL OUTPUT\n// --------------------------------\n\nreturn tickets.map((item, index) => ({\n  ...item,\n\n  json: {\n    ...item.json,\n\n    // Only first row\n    total_no_of_tickets:\n      index === 0 ? totalTickets : \"\",\n\n    // Only first row\n    responsible_team:\n      index === 0 ? responsibleTeam : \"\"\n  }\n}));"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -96,
-        -64
+        -464,
+        -448
       ],
       "id": "5228fb44-f1ca-493d-bc1b-b69d8a9a3f37",
-      "name": "Code in JavaScript",
-      "alwaysOutputData": true
+      "name": "Daily ticket code",
+      "alwaysOutputData": false
     },
     {
       "parameters": {
@@ -73,10 +172,109 @@
         },
         "sheetName": {
           "__rl": true,
-          "value": "gid=0",
+          "value": 1661229705,
           "mode": "list",
-          "cachedResultName": "AUGUST 2026",
-          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1NRtuzRU2p0Me0dOvMH0ybLn-FJFmS-xTjHohh2JkhqA/edit#gid=0"
+          "cachedResultName": "Daily Tickets Summary",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1NRtuzRU2p0Me0dOvMH0ybLn-FJFmS-xTjHohh2JkhqA/edit#gid=1661229705"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ $json.date }}",
+            "Tickets Created": "={{ $json.total_tickets_created }}",
+            "Responsible Team": "={{ $json.team_responsible }}",
+            "Open Tickets": "={{ $json.open_tickets }}",
+            "Daily Ticket SLA Compliance": "={{ $json.overall_ticket_sla_compliance }}"
+          },
+          "matchingColumns": [
+            "Date"
+          ],
+          "schema": [
+            {
+              "id": "Date",
+              "displayName": "Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Tickets Created",
+              "displayName": "Tickets Created",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Open Tickets",
+              "displayName": "Open Tickets",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Responsible Team",
+              "displayName": "Responsible Team",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Daily Ticket SLA Compliance",
+              "displayName": "Daily Ticket SLA Compliance",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -240,
+        -256
+      ],
+      "id": "b319fc23-dbdb-4891-a271-7368c4cc5b89",
+      "name": "Daily Summary",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ZA7bg0scO52k1Ej2",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1NRtuzRU2p0Me0dOvMH0ybLn-FJFmS-xTjHohh2JkhqA",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 526363314,
+          "mode": "list",
+          "cachedResultName": "September 2026",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1NRtuzRU2p0Me0dOvMH0ybLn-FJFmS-xTjHohh2JkhqA/edit#gid=526363314"
         },
         "columns": {
           "mappingMode": "defineBelow",
@@ -103,7 +301,7 @@
             "Resolution time (in hrs)": "={{ $json.stats.resolved_at }}",
             "Closed time": "={{ $('Get many tickets').item.json.stats.closed_at }}",
             "Escalation Level": "={{ $('Get many tickets').item.json.custom_fields.cf_escalation_level }}",
-            "Agent": "={{ $json.custom_fields.cf_owner }}",
+            "Agent": "=Precious Mphahlele",
             "Is Escalated (YES/ NO)": "={{ $json.is_escalated }}",
             "Resolution status": "={{$json.resolution_status}}",
             "First response status": "={{$json.first_response_status}}"
@@ -401,22 +599,259 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        112,
-        -64
+        -240,
+        -448
       ],
       "id": "24fb96e0-c453-4658-880f-aaff69b82afa",
-      "name": "Append or update row in sheet",
+      "name": "Ticket tracker",
+      "alwaysOutputData": true,
       "credentials": {
         "googleSheetsOAuth2Api": {
           "id": "ZA7bg0scO52k1Ej2",
           "name": "Google Sheets account"
         }
       }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1NRtuzRU2p0Me0dOvMH0ybLn-FJFmS-xTjHohh2JkhqA",
+          "mode": "list",
+          "cachedResultName": "Freshdesk Ticket Tracker",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1NRtuzRU2p0Me0dOvMH0ybLn-FJFmS-xTjHohh2JkhqA/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 870497117,
+          "mode": "list",
+          "cachedResultName": "Ticket Status Change Log",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1NRtuzRU2p0Me0dOvMH0ybLn-FJFmS-xTjHohh2JkhqA/edit#gid=870497117"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Ticket ID": "={{ $json['Ticket ID'] }}",
+            "Owner": "={{ $json.Owner }}",
+            "Date Checked": "={{ $json['Date Checked'] }}",
+            "Change": "={{ $json.Change }}",
+            "New Status": "={{ $json['New Status'] }}",
+            "Previous Status": "={{ $json['Previous Status'] }}",
+            "Ticket Link": "={{ $json['Ticket Link'] }}",
+            "Subject": "={{ $json.Subject }}",
+            "Date Created": "={{ $json['Created Date'] }}"
+          },
+          "matchingColumns": [
+            "Ticket ID"
+          ],
+          "schema": [
+            {
+              "id": "Date Checked",
+              "displayName": "Date Checked",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Ticket ID",
+              "displayName": "Ticket ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date Created",
+              "displayName": "Date Created",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Subject",
+              "displayName": "Subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Owner",
+              "displayName": "Owner",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Change",
+              "displayName": "Change",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Previous Status",
+              "displayName": "Previous Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "New Status",
+              "displayName": "New Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Ticket Link",
+              "displayName": "Ticket Link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        208,
+        48
+      ],
+      "id": "0635cf83-581e-4c55-8d12-c22f1586ae53",
+      "name": "Ticket Change log tab",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ZA7bg0scO52k1Ej2",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const timeZone = \"Africa/Johannesburg\";\n\n// --------------------------------\n// GET TODAY'S DATE\n// --------------------------------\n\nconst today = new Intl.DateTimeFormat(\"en-CA\", {\n  timeZone,\n  year: \"numeric\",\n  month: \"2-digit\",\n  day: \"2-digit\"\n}).format(new Date());\n\n\n// --------------------------------\n// GET ALL FRESHDESK TICKETS\n// --------------------------------\n\nconst tickets = $input.all();\n\n\n// --------------------------------\n// FILTER TICKETS CREATED TODAY\n// --------------------------------\n\nconst todaysTickets = tickets.filter(item => {\n\n  if (!item.json.created_at) return false;\n\n  const createdDate = new Intl.DateTimeFormat(\"en-CA\", {\n    timeZone,\n    year: \"numeric\",\n    month: \"2-digit\",\n    day: \"2-digit\"\n  }).format(new Date(item.json.created_at));\n\n  return createdDate === today;\n\n});\n\nconst totalTickets = todaysTickets.length;\n\n\n// --------------------------------\n// OPEN TICKETS\n// --------------------------------\n\nconst openTickets = todaysTickets.filter(item =>\n  item.json.status === 2\n).length;\n\n\n// --------------------------------\n// OVERALL SLA COMPLIANCE\n// --------------------------------\n\n// Count tickets resolved within SLA\nconst ticketsWithinSLA = todaysTickets.filter(item => {\n\n  const resolved = item.json.stats?.resolved_at;\n  const resolutionDue = item.json.due_by;\n\n  if (!resolved || !resolutionDue) {\n    return false;\n  }\n\n  return new Date(resolved) <= new Date(resolutionDue);\n\n}).length;\n\n\n// Calculate overall SLA compliance\nlet slaCompliance;\n\nif (totalTickets === 0) {\n\n  slaCompliance = \"N/A\";\n\n} else {\n\n  slaCompliance =\n    parseFloat(\n      ((ticketsWithinSLA / totalTickets) * 100).toFixed(2)\n    ) + \"%\";\n\n}\n\n\n// --------------------------------\n// MODULE STATISTICS\n// --------------------------------\n\n// e-Leave tickets\nconst eLeaveTickets = todaysTickets.filter(item =>\n  item.json.Module === \"e-Leave\"\n);\n\nconst eLeaveTotal = eLeaveTickets.length;\n\n\n// e-Leave tickets within SLA\nconst eLeaveWithinSLA = eLeaveTickets.filter(item => {\n\n  const resolved = item.json.stats?.resolved_at;\n  const resolutionDue = item.json.due_by;\n\n  if (!resolved || !resolutionDue) {\n    return false;\n  }\n\n  return new Date(resolved) <= new Date(resolutionDue);\n\n}).length;\n\n\n// Invoice Tracking and Payments tickets\nconst invoiceTickets = todaysTickets.filter(item =>\n  item.json.Module === \"Invoice Tracking and Payments\"\n);\n\nconst invoiceTotal = invoiceTickets.length;\n\n\n// Invoice tickets within SLA\nconst invoiceWithinSLA = invoiceTickets.filter(item => {\n\n  const resolved = item.json.stats?.resolved_at;\n  const resolutionDue = item.json.due_by;\n\n  if (!resolved || !resolutionDue) {\n    return false;\n  }\n\n  return new Date(resolved) <= new Date(resolutionDue);\n\n}).length;\n\n\n// --------------------------------\n// MODULE SLA COMPLIANCE\n// --------------------------------\n\nconst eLeaveSLA =\n  eLeaveTotal === 0\n    ? \"N/A\"\n    : parseFloat(\n        ((eLeaveWithinSLA / eLeaveTotal) * 100).toFixed(2)\n      ) + \"%\";\n\n\nconst invoiceSLA =\n  invoiceTotal === 0\n    ? \"N/A\"\n    : parseFloat(\n        ((invoiceWithinSLA / invoiceTotal) * 100).toFixed(2)\n      ) + \"%\";\n\n\n// --------------------------------\n// RESPONSIBLE TEAM\n// --------------------------------\n\nconst dayOfWeek = new Date(\n  today + \"T12:00:00+02:00\"\n).getDay();\n\n\nconst teams = {\n\n  1: \"TEAM 1 – Pearl Mhlongo, Sandile Tshabalala\",\n\n  2: \"TEAM 2 – Glen Mogane, Nontokozo Simelane, Khanyisa Mathebula\",\n\n  3: \"TEAM 3 – Wendy Gama, Sinead Swele\",\n\n  4: \"TEAM 4 – Henny Mkhonto, Ncedile Bhila, Mbalenhle Zungu\",\n\n  5: \"TEAM 5 – Norah Moseteka, Sibusiso Peterson\"\n\n};\n\n\nconst responsibleTeam =\n  teams[dayOfWeek] || \"\";\n\n\n// --------------------------------\n// FINAL OUTPUT\n// --------------------------------\n\nreturn [{\n  json: {\n\n    date: today,\n\n    total_tickets_created: totalTickets,\n\n    team_responsible: responsibleTeam,\n\n    overall_ticket_sla_compliance: slaCompliance,\n\n    open_tickets: openTickets,\n\n    // Module Statistics\n    e_leave_tickets_created: eLeaveTotal,\n\n    invoice_tickets_created: invoiceTotal,\n\n    overall_e_leave_sla_compliance: eLeaveSLA,\n\n    overall_invoice_sla_compliance: invoiceSLA\n\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -464,
+        -256
+      ],
+      "id": "ce9fdd2c-16ed-4cd9-9f14-0dd8a63537df",
+      "name": "Daily Ticket Summary code"
+    },
+    {
+      "parameters": {
+        "jsCode": "// --------------------------------\n// STATUS MAPPINGS\n// --------------------------------\n\nconst statusNames = {\n  2: \"Open\",\n  3: \"Pending\",\n  4: \"Resolved\",\n  5: \"Closed\",\n  6: \"Waiting on Customer\"\n};\n\n\n// --------------------------------\n// DATE / TIME ZONE\n// --------------------------------\n\nconst timeZone = \"Africa/Johannesburg\";\n\n// Date when the change was detected\nconst dateChecked = new Intl.DateTimeFormat(\"en-GB\", {\n  timeZone,\n  day: \"2-digit\",\n  month: \"2-digit\",\n  year: \"numeric\"\n}).format(new Date());\n\n\n// --------------------------------\n// PROCESS MERGED TICKETS\n// --------------------------------\n\nconst tickets = $input.all();\n\nconst changes = [];\n\nfor (const item of tickets) {\n\n  const data = item.json;\n\n  // --------------------------------\n  // GOOGLE SHEETS INFORMATION\n  // --------------------------------\n\n  const ticketId = data[\"Ticket ID\"];\n  const subject = data[\"Subject\"] || \"\";\n  const owner = data[\"Owner\"] || \"\";\n  const previousStatus = data[\"Status\"] || \"\";\n\n\n  // --------------------------------\n  // FRESHDESK INFORMATION\n  // --------------------------------\n\n  const currentStatus =\n    statusNames[data.status] || data.status || \"\";\n\n  const createdAt = data.created_at;\n\n\n  // --------------------------------\n  // CREATED DATE\n  // --------------------------------\n\n  let createdDate = \"\";\n\n  if (createdAt) {\n    createdDate = new Intl.DateTimeFormat(\"en-GB\", {\n      timeZone,\n      day: \"2-digit\",\n      month: \"2-digit\",\n      year: \"numeric\"\n    }).format(new Date(createdAt));\n  }\n\n\n  // --------------------------------\n  // CHECK FOR STATUS CHANGE\n  // --------------------------------\n\n  if (\n    ticketId &&\n    previousStatus &&\n    currentStatus &&\n    previousStatus !== currentStatus\n  ) {\n\n    let changeType = \"Status changed\";\n\n\n    // Identify reopened tickets\n    if (\n      (previousStatus === \"Resolved\" || previousStatus === \"Closed\") &&\n      currentStatus === \"Open\"\n    ) {\n      changeType = \"Reopened\";\n    }\n\n\n    // Freshdesk ticket link\n    const ticketLink =\n      `https://boxfusion.freshdesk.com/a/tickets/${ticketId}`;\n\n\n    // --------------------------------\n    // OUTPUT\n    // --------------------------------\n\n    changes.push({\n      json: {\n        \"Date Checked\": dateChecked,\n        \"Ticket ID\": ticketId,\n        \"Subject\": subject,\n        \"Created Date\": createdDate,\n        \"Change\": changeType,\n        \"Previous Status\": previousStatus,\n        \"New Status\": currentStatus,\n        \"Owner\": owner,\n        \"Ticket Link\": ticketLink\n      }\n    });\n  }\n}\n\n\n// --------------------------------\n// RETURN CHANGES\n// --------------------------------\n\nreturn changes;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -16,
+        48
+      ],
+      "id": "a184c206-189d-475f-afe5-25df69a4fc12",
+      "name": "Ticket status change log"
     }
   ],
   "pinData": {},
   "connections": {
-    "Schedule Trigger": {
+    "Get many tickets": {
+      "main": [
+        [
+          {
+            "node": "Daily ticket code",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Daily Ticket Summary code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Ticket status change log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Change log trigger": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ticket & Daily summary trigger": {
       "main": [
         [
           {
@@ -427,22 +862,38 @@
         ]
       ]
     },
-    "Get many tickets": {
+    "Daily ticket code": {
       "main": [
         [
           {
-            "node": "Code in JavaScript",
+            "node": "Ticket tracker",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Code in JavaScript": {
+    "Ticket tracker": {
+      "main": [
+        []
+      ]
+    },
+    "Daily Ticket Summary code": {
       "main": [
         [
           {
-            "node": "Append or update row in sheet",
+            "node": "Daily Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ticket status change log": {
+      "main": [
+        [
+          {
+            "node": "Ticket Change log tab",
             "type": "main",
             "index": 0
           }
@@ -456,7 +907,7 @@
     "binaryMode": "separate",
     "availableInMCP": false
   },
-  "versionId": "8116e277-f297-428b-8bf8-bcbeb8ea5a48",
+  "versionId": "0e93a5c6-a9cf-4294-a305-33fef8efef41",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "b2562647513dcc82becd2e81ea7b8054a2a0a336d2d7ed01d11d3e8e57df9f28"
